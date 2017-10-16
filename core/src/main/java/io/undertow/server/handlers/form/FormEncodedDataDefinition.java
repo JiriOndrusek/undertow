@@ -25,6 +25,7 @@ import io.undertow.connector.PooledByteBuffer;
 import io.undertow.server.HttpHandler;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.util.Headers;
+import io.undertow.util.ImmediatePooledByteBuffer;
 import io.undertow.util.SameThreadExecutor;
 import io.undertow.util.URLUtils;
 import org.xnio.ChannelListener;
@@ -112,7 +113,7 @@ public class FormEncodedDataDefinition implements FormParserFactory.ParserDefini
         @Override
         public void handleEvent(final StreamSourceChannel channel) {
             try {
-                doParse(channel);
+                doParse(exchange.getConnection().getByteBufferPool().allocate(), channel);
                 if (state == 4) {
                     exchange.dispatch(SameThreadExecutor.INSTANCE, handler);
                 }
@@ -124,16 +125,20 @@ public class FormEncodedDataDefinition implements FormParserFactory.ParserDefini
             }
         }
 
-        private void doParse(final StreamSourceChannel channel) throws IOException {
+
+        private void doParse(final PooledByteBuffer pooled, final StreamSourceChannel channel) throws IOException {
             int c = 0;
-            final PooledByteBuffer pooled = exchange.getConnection().getByteBufferPool().allocate();
             try {
                 final ByteBuffer buffer = pooled.getBuffer();
                 do {
                     buffer.clear();
-                    c = channel.read(buffer);
-                    if (c > 0) {
-                        buffer.flip();
+                    if(channel != null) {
+                        c = channel.read(buffer);
+                    }
+                    if (channel == null || c > 0) {
+                        if(channel != null) {
+                            buffer.flip();
+                        }
                         while (buffer.hasRemaining()) {
                             byte n = buffer.get();
                             switch (state) {
@@ -194,8 +199,8 @@ public class FormEncodedDataDefinition implements FormParserFactory.ParserDefini
                             }
                         }
                     }
-                } while (c > 0);
-                if (c == -1) {
+                } while (channel != null && c > 0);
+                if (channel == null || c == -1) {
                     if (state == 2) {
                         data.add(name, builder.toString());
                     } else if (state == 3) {
@@ -208,7 +213,9 @@ public class FormEncodedDataDefinition implements FormParserFactory.ParserDefini
                         }
                     }
                     state = 4;
-                    exchange.putAttachment(FORM_DATA, data);
+                    if(channel != null) {
+                        exchange.putAttachment(FORM_DATA, data);
+                    }
                 }
             } finally {
                 pooled.close();
@@ -227,7 +234,7 @@ public class FormEncodedDataDefinition implements FormParserFactory.ParserDefini
             if (channel == null) {
                 throw new IOException(UndertowMessages.MESSAGES.requestChannelAlreadyProvided());
             } else {
-                doParse(channel);
+                doParse(exchange.getConnection().getByteBufferPool().allocate(), channel);
                 if (state != 4) {
                     channel.getReadSetter().set(this);
                     channel.resumeReads();
@@ -249,12 +256,18 @@ public class FormEncodedDataDefinition implements FormParserFactory.ParserDefini
                 throw new IOException(UndertowMessages.MESSAGES.requestChannelAlreadyProvided());
             } else {
                 while (state != 4) {
-                    doParse(channel);
+                    doParse(exchange.getConnection().getByteBufferPool().allocate(), channel);
                     if (state != 4) {
                         channel.awaitReadable();
                     }
                 }
             }
+            return data;
+        }
+
+        @Override
+        public FormData parseBytesBlocking(byte[] bytes) throws IOException {
+            doParse(new ImmediatePooledByteBuffer(ByteBuffer.wrap(bytes, 0, bytes.length)), null);
             return data;
         }
 

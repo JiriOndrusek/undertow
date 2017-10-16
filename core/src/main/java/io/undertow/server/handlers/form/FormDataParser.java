@@ -62,6 +62,15 @@ public interface FormDataParser extends Closeable {
     FormData parseBlocking() throws IOException;
 
     /**
+     * Parse the data NOT from request, but from the byte array.
+     *
+     * @param bytes
+     * @return
+     * @throws IOException If the data could not be read
+     */
+    FormData parseBytesBlocking(final byte[] bytes)  throws IOException;
+
+    /**
      * Closes the parser, and removes and temporary files that may have been created.
      *
      * @throws IOException

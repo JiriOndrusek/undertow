@@ -230,6 +230,11 @@ public class MultiPartParserDefinition implements FormParserFactory.ParserDefini
         }
 
         @Override
+        public FormData parseBytesBlocking(final byte[] bytes) {
+            throw new IllegalArgumentException("not implemented");
+        }
+
+        @Override
         public void beginPart(final HeaderMap headers) {
             this.currentFileSize = 0;
             this.headers = headers;
