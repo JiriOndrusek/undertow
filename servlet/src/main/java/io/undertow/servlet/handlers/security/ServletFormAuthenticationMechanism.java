@@ -154,6 +154,10 @@ public class ServletFormAuthenticationMechanism extends FormAuthenticationMechan
 
     @Override
     protected void storeInitialLocation(final HttpServerExchange exchange) {
+        storeInitialLocation(exchange, null);
+    }
+
+    protected void storeInitialLocation(final HttpServerExchange exchange, byte[] bytes) {
         if(!saveOriginalRequest) {
             return;
         }
@@ -170,7 +174,7 @@ public class ServletFormAuthenticationMechanism extends FormAuthenticationMechan
             manager.registerSessionListener(LISTENER);
         }
         session.setAttribute(SESSION_KEY, RedirectBuilder.redirect(exchange, exchange.getRelativePath()));
-        SavedRequest.trySaveRequest(exchange);
+        SavedRequest.trySaveRequest(exchange, bytes);
     }
 
     @Override

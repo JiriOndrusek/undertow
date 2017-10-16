@@ -68,6 +68,11 @@ public class SavedRequest implements Serializable {
         }
     }
 
+    public static int getMaxBufferSizeToSave(final HttpServerExchange exchange) {
+        int maxSize = exchange.getConnection().getUndertowOptions().get(UndertowOptions.MAX_BUFFERED_REQUEST_SIZE, UndertowOptions.DEFAULT_MAX_BUFFERED_REQUEST_SIZE);
+        return  maxSize;
+    }
+
     public static void trySaveRequest(final HttpServerExchange exchange) {
         int maxSize = exchange.getConnection().getUndertowOptions().get(UndertowOptions.MAX_BUFFERED_REQUEST_SIZE, UndertowOptions.DEFAULT_MAX_BUFFERED_REQUEST_SIZE);
         if (maxSize > 0) {
@@ -92,29 +97,46 @@ public class SavedRequest implements Serializable {
                             return;//failed to save the request, we just return
                         }
                     }
-                    HeaderMap headers = new HeaderMap();
-                    for(HeaderValues entry : exchange.getRequestHeaders()) {
-                        if(entry.getHeaderName().equals(Headers.CONTENT_LENGTH) ||
-                                entry.getHeaderName().equals(Headers.TRANSFER_ENCODING) ||
-                                entry.getHeaderName().equals(Headers.CONNECTION)) {
-                            continue;
-                        }
-                        headers.putAll(entry.getHeaderName(), entry);
-                    }
-                    SavedRequest request = new SavedRequest(buffer, read, exchange.getRequestMethod(), exchange.getRelativePath(), exchange.getRequestHeaders());
-                    final ServletRequestContext sc = exchange.getAttachment(ServletRequestContext.ATTACHMENT_KEY);
-                    HttpSessionImpl session = sc.getCurrentServletContext().getSession(exchange, true);
-                    Session underlyingSession;
-                    if(System.getSecurityManager() == null) {
-                        underlyingSession = session.getSession();
-                    } else {
-                        underlyingSession = AccessController.doPrivileged(new HttpSessionImpl.UnwrapSessionAction(session));
-                    }
-                    underlyingSession.setAttribute(SESSION_KEY, request);
+                    trySaveRequest(exchange, buffer);
                 } catch (IOException e) {
                     UndertowLogger.REQUEST_IO_LOGGER.ioException(e);
                 }
             }
+        }
+    }
+
+    public static void trySaveRequest(final HttpServerExchange exchange, final byte[] buffer) {
+        if(buffer == null) {
+            trySaveRequest(exchange);
+            return;
+        }
+        int maxSize = exchange.getConnection().getUndertowOptions().get(UndertowOptions.MAX_BUFFERED_REQUEST_SIZE, UndertowOptions.DEFAULT_MAX_BUFFERED_REQUEST_SIZE);
+        if (maxSize > 0) {
+            if (buffer.length > maxSize) {
+                UndertowLogger.REQUEST_LOGGER.debugf("Request to %s was to large to save", exchange.getRequestURI());
+                return;//failed to save the request, we just return
+            }
+            //TODO: we should really be used pooled buffers
+            //TODO: we should probably limit the number of saved requests at any given time
+            HeaderMap headers = new HeaderMap();
+            for (HeaderValues entry : exchange.getRequestHeaders()) {
+                if (entry.getHeaderName().equals(Headers.CONTENT_LENGTH) ||
+                        entry.getHeaderName().equals(Headers.TRANSFER_ENCODING) ||
+                        entry.getHeaderName().equals(Headers.CONNECTION)) {
+                    continue;
+                }
+                headers.putAll(entry.getHeaderName(), entry);
+            }
+            SavedRequest request = new SavedRequest(buffer, buffer.length, exchange.getRequestMethod(), exchange.getRelativePath(), exchange.getRequestHeaders());
+            final ServletRequestContext sc = exchange.getAttachment(ServletRequestContext.ATTACHMENT_KEY);
+            HttpSessionImpl session = sc.getCurrentServletContext().getSession(exchange, true);
+            Session underlyingSession;
+            if (System.getSecurityManager() == null) {
+                underlyingSession = session.getSession();
+            } else {
+                underlyingSession = AccessController.doPrivileged(new HttpSessionImpl.UnwrapSessionAction(session));
+            }
+            underlyingSession.setAttribute(SESSION_KEY, request);
         }
     }
 
